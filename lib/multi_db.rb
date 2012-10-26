@@ -5,6 +5,7 @@ require 'multi_db/observer_extensions'
 require 'multi_db/query_cache_compat'
 require 'multi_db/connection_proxy'
 require 'multi_db/lag_monitor'
+require 'multi_db/query_analyzer'
 
 module MultiDb
   def self.config

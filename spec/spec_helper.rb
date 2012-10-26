@@ -1,5 +1,4 @@
 require 'rubygems'
-gem 'activerecord', '3.0.5'
 %w[tlattr_accessors active_record yaml erb rspec logger].each {|lib| require lib}
 
 module Rails
