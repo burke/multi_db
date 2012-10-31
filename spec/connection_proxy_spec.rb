@@ -20,7 +20,6 @@ describe MultiDb::ConnectionProxy do
   
   describe "with standard Scheduler" do
     before(:each) do
-      MultiDb::ConnectionProxy.master_models = ['MasterModel']
       MultiDb::ConnectionProxy.setup!
       @proxy = ActiveRecord::Base.connection_proxy
       @master = @proxy.master.retrieve_connection
@@ -153,27 +152,6 @@ describe MultiDb::ConnectionProxy do
       foo.bar.should == 'baz'
     end
   
-    describe 'with sticky_slave ' do
-
-      before { MultiDb::ConnectionProxy.sticky_slave = true  }
-      after  { MultiDb::ConnectionProxy.sticky_slave = false }
-
-      it 'should not switch to the next reader automatically' do
-        @slave1.should_receive(:select_all).exactly(3)
-        @slave2.should_receive(:select_all).exactly(0)
-        3.times { @proxy.select_all(@sql) }
-      end
-
-      it '#next_reader! should switch to the next slave' do
-        @slave1.should_receive(:select_one).exactly(3)
-        @slave2.should_receive(:select_one).exactly(7)
-        3.times { @proxy.select_one(@sql) }
-        @proxy.next_reader!
-        7.times { @proxy.select_one(@sql) }
-      end
-
-    end
-
     describe '(accessed from multiple threads)' do
       # NOTE: We cannot put expectations on the connection objects itself
       #       for the threading specs, as connection pooling will cause

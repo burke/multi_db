@@ -20,7 +20,6 @@ describe MultiDb::WeightedScheduler do
   end
   
   before(:each) do
-    MultiDb::ConnectionProxy.master_models = ['MasterModel']
     MultiDb::ConnectionProxy.setup!(MultiDb::WeightedScheduler)
     @proxy      = ActiveRecord::Base.connection_proxy
     @scheduler  = @proxy.scheduler

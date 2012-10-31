@@ -5,6 +5,7 @@ module MultiDb
       base.send :extend, ClassMethods
       base.cattr_accessor :connection_proxy
       # handle subclasses which were defined by the framework or plugins
+      base.hijack_connection
       base.send(:descendants).each do |child|
         child.hijack_connection
       end
@@ -41,8 +42,7 @@ module MultiDb
       end
 
       def hijack_connection
-        return if ConnectionProxy.master_models.include?(self.to_s)
-        logger.info "[MULTIDB] hijacking connection for #{self.to_s}"
+        logger.info "[MULTIDB] hijacking connection for #{self.to_s}" if logger
         class << self
           def connection
             self.connection_proxy
