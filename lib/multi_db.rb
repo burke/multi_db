@@ -9,6 +9,7 @@ require 'multi_db/query_analyzer'
 require 'multi_db/slave_initialization'
 require 'multi_db/session'
 require 'multi_db/railtie'
+require 'multi_db/connection_stack'
 
 module MultiDb
 

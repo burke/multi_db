@@ -28,7 +28,7 @@ module MultiDb
       }
     end
 
-    def self.cache_fetch(key, expiry = 10.seconds, &block)
+    def self.cache_fetch(key, expiry = 10, &block)
       @lag_cache ||= {}
       value, expire_time = @lag_cache[key]
       if expire_time.nil? || expire_time < Time.now

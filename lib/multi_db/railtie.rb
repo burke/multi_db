@@ -11,11 +11,18 @@ module MultiDb
       proxy = MultiDb::ConnectionProxy.new(ActiveRecord::Base, slaves)
       ActiveRecord::Base.connection_proxy = proxy
 
-      Rails.application.config.after_initialize do
+      after_init = ->{
         ActiveRecord::Observer.send :include, MultiDb::ObserverExtensions
         ActionController::Base.send :include, MultiDb::Session
 
         ActiveRecord::Base.logger.info("** multi_db with master and #{slaves.length} slave#{"s" if slaves.length > 1} loaded.")
+      }
+
+      # makes testing easier.
+      if Rails.application
+        Rails.application.config.after_initialize(&after_init)
+      else
+        after_init.call
       end
 
     end

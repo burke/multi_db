@@ -1,5 +1,15 @@
-require 'tlattr_accessors'
 require 'active_record/connection_adapters/abstract/query_cache'
+require 'active_record/errors'
+require 'active_support/core_ext/module/delegation'
+require 'mysql2'
+
+require 'tlattr_accessors'
+require File.expand_path '../query_cache_compat', __FILE__
+require File.expand_path '../scheduler', __FILE__
+require File.expand_path '../connection_stack', __FILE__
+require File.expand_path '../query_analyzer', __FILE__
+require File.expand_path '../lag_monitor', __FILE__
+require File.expand_path '../session', __FILE__
 
 module MultiDb
   class ConnectionProxy
@@ -30,41 +40,39 @@ module MultiDb
       acc
     }.freeze
 
-    RECONNECT_EXCEPTIONS = [ActiveRecord::ConnectionNotEstablished]
+    RECONNECT_EXCEPTIONS = [ActiveRecord::ConnectionNotEstablished, Mysql2::Error, ActiveRecord::StatementInvalid]
 
     attr_accessor :master
-    tlattr_accessor :master_depth, :current, true
 
-    def initialize(master, slaves, scheduler = Scheduler)
-      @scheduler = scheduler.new(slaves)
+    def initialize(master, slaves, scheduler_klass = Scheduler)
       @master    = master
       @reconnect = false
       @query_cache = {}
 
-      self.current = @master
-      self.master_depth = 1
+      @scheduler = scheduler_klass.new(slaves)
     end
 
-    def with_master
-      self.current = @master
-      self.master_depth += 1
-      yield
-    ensure
-      self.master_depth -= 1
-      self.current = slave if (master_depth <= 0)
+    tlattr_accessor :_connection_stack, false
+    def connection_stack
+      self._connection_stack ||= ConnectionStack.new(@master, @scheduler)
     end
 
-    def with_slave
-      self.current = slave
-      self.master_depth -= 1
-      yield
-    ensure
-      self.master_depth += 1
-      self.current = @master if (master_depth > 0)
+    delegate :master?, :with_master, :with_slave, :with_slave_unless_in_transaction, :next_reader!,
+      to: :connection_stack
+
+    def begin_db_transaction
+      connection_stack.push_master
+      perform_query(:begin_db_transaction)
     end
 
-    def transaction(start_db_transaction = true, &block)
-      with_master { @master.retrieve_connection.transaction(start_db_transaction, &block) }
+    def rollback_db_transaction
+      perform_query(:rollback_db_transaction)
+      connection_stack.pop
+    end
+
+    def commit_db_transaction
+      perform_query(:commit_db_transaction)
+      connection_stack.pop
     end
 
     # Calls the method on master/slave and dynamically creates a new
@@ -73,16 +81,6 @@ module MultiDb
       send(target_method(method), method, *args, &block).tap do
         create_delegation_method!(method)
       end
-    end
-
-    # Switches to the next slave database for read operations.
-    # Fails over to the master database if all slaves are unavailable.
-    def next_reader!
-      return if  master_depth > 0  # don't if in with_master block
-      self.current = @scheduler.next
-    rescue Scheduler::NoMoreItems
-      logger.warn "[MULTIDB] All slaves are blacklisted. Reading from master"
-      self.current = @master
     end
 
     protected
@@ -105,42 +103,36 @@ module MultiDb
 
     def send_to_current(method, *args, &block)
       if needs_sticky_master?(method, args[0])
-        send_to_master(method, *args, &block)
+        with_master { perform_query(method, *args, &block) }
       else
         perform_query(method, *args, &block)
       end
     end
 
     def perform_query(method, *args, &block)
-      if master?
+      if connection_stack.master?
         @reconnect and reconnect_master!
       else
-        find_up_to_date_reader!
+        connection_stack.find_up_to_date_reader!
       end
 
-      record_statistic(current.name) unless IGNORABLE_METHODS[method]
+      record_statistic(connection_stack.current.name) unless IGNORABLE_METHODS[method]
 
-      connection = Rails.env.test? ? @master : current
-      connection.retrieve_connection.send(method, *args, &block)
-    rescue *RECONNECT_EXCEPTIONS, ActiveRecord::StatementInvalid => e
-      raise if ActiveRecord::StatementInvalid === e && e.message !~ /server has gone away/
+      connection_stack.retrieve_connection.send(method, *args, &block)
+    rescue *RECONNECT_EXCEPTIONS => e
+      raise if should_re_raise_exception?(e)
 
-      raise_master_error(e) if master?
+      raise_master_error(e) if connection_stack.master?
       logger.warn "[MULTIDB] Error reading from slave database"
       logger.error %(#{e.message}\n#{e.backtrace.join("\n")})
-      @scheduler.blacklist!(current)
-      next_reader!
+      connection_stack.blacklist_current!
       retry
     end
 
-    def find_up_to_date_reader!
-      # This will, as a worst case, terminate when we give up on
-      # slaves and set current to master, since master always has
-      # replica lag of 0.
-      while LagMonitor.replication_lag_too_high?(current)
-        @scheduler.blacklist!(current)
-        next_reader!
-      end
+    def should_re_raise_exception?(e)
+      return true if ActiveRecord::StatementInvalid === e && e.message !~ /server has gone away/
+      return true if Mysql2::Error === e && e.message !~ /Can't connect to MySQL server/
+      false
     end
 
     def record_statistic(connection_name)
@@ -149,7 +141,7 @@ module MultiDb
 
     def mark_sticky(method, sql)
       return if noncommunicating_method?(method, sql)
-      duration = LagMonitor.sticky_master_duration(slave)
+      duration = LagMonitor.sticky_master_duration(connection_stack.slave)
       QueryAnalyzer.mark_sticky_tables_in_session(Session.current_session, sql, duration)
     end
 
@@ -180,16 +172,8 @@ module MultiDb
       !SAFE_METHODS[method]
     end
 
-    def master?
-      current == @master
-    end
-
     def logger
       ActiveRecord::Base.logger
-    end
-
-    def slave
-      @scheduler.current
     end
 
   end
