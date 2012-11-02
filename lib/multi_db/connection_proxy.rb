@@ -84,8 +84,8 @@ module MultiDb
       connection_stack.pop
     end
 
-    def recreate_database(*args)
-      perform_query(:recreate_database, *args)
+    def create_database(*args)
+      perform_query(:create_database, *args)
       reconnect_master!
     end
 
