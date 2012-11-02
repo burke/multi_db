@@ -84,6 +84,11 @@ module MultiDb
       connection_stack.pop
     end
 
+    def recreate_database(*args)
+      perform_query(:recreate_database, *args)
+      reconnect_master!
+    end
+
     # Calls the method on master/slave and dynamically creates a new
     # method on success to speed up subsequent calls
     def method_missing(method, *args, &block)

@@ -58,7 +58,9 @@ module MultiDb
         self.connection_proxy = ConnectionProxyFactory.build(spec)
 
         metaclass = class << self ; self ; end
-        metaclass.send(:define_method, :connection) { connection_proxy }
+        metaclass.send(:define_method, :connection) {
+          connection_proxy.establish_initial_connection
+        }
       end
     end
   end
