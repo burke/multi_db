@@ -56,6 +56,7 @@ module MultiDb
 
         spec = connection_pool.spec # the hash loaded from yaml
         self.connection_proxy = ConnectionProxyFactory.build(spec)
+        connection_proxy.instance_variable_set(:@connection_established,false)
 
         metaclass = class << self ; self ; end
         metaclass.send(:define_method, :connection) {
