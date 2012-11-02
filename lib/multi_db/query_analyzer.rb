@@ -1,3 +1,5 @@
+require 'set'
+
 module MultiDb
   module QueryAnalyzer
 
@@ -5,15 +7,11 @@ module MultiDb
     KEYWORD = /(?:JOIN|FROM|INTO|UPDATE)/i
     TABLE_NAME = /`?(\w+)`?/
     MORE_TABLES = /(?:\s*,\s*`?(?:\w+)`?)/ # for e.g.: SELECT * FROM `a`, `b`
-    TABLE_MATCH = /#{KEYWORD}\s+#{TABLE_NAME}(#{MORE_TABLES}*)/
-
-    TEMP_DISABLE = true
+    TABLE_MATCH = /#{KEYWORD}\s+#{TABLE_NAME}(#{MORE_TABLES}*)/io
 
     def self.query_requires_sticky?(session, query)
       exp = session[:sticky_expires]
       return false if exp.nil? || exp <= Time.now.to_i
-
-      return true if TEMP_DISABLE
 
       stickied = session[:sticky_tables] || {}
       tables(query).each do |asked_for|
@@ -32,8 +30,6 @@ module MultiDb
       if session[:sticky_expires].nil? || session[:sticky_expires] < expiry
         session[:sticky_expires] = expiry
       end
-
-      return session if TEMP_DISABLE
 
       session[:sticky_tables].each do |k,v|
         session[:sticky_tables].delete(k) if v < expiry
