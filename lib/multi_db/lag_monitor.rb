@@ -24,7 +24,7 @@ module MultiDb
 
     def self.slave_lag(klass)
       cache_fetch("slave_lag:#{klass.name}") {
-        actual_slave_lag(klass.retrieve_connection)
+        actual_slave_lag(klass)
       }
     end
 
@@ -42,12 +42,13 @@ module MultiDb
       # hook method
     end
 
-    def self.actual_slave_lag(connection)
+    def self.actual_slave_lag(connection_class)
+      connection = connection_class.retrieve_connection
       result = connection.execute("SHOW SLAVE STATUS")
       index = result.fields.index("Seconds_Behind_Master")
       lag = result.first.try(:[], index).to_i
 
-      report_lag_statistic(lag)
+      report_lag_statistic(connection_class.name, lag)
 
       lag
     end
