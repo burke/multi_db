@@ -6,6 +6,9 @@ module MultiDb
       base.cattr_accessor :connection_proxy
       # handle subclasses which were defined by the framework or plugins
       base.hijack_connection
+      class << base
+        alias_method_chain :establish_connection, :multidb
+      end
       base.send(:descendants).each do |child|
         child.hijack_connection
       end
@@ -41,13 +44,24 @@ module MultiDb
         child.hijack_connection
       end
 
-      def hijack_connection
-        logger.info "[MULTIDB] hijacking connection for #{self.to_s}" if logger
-        class << self
-          def connection
-            self.connection_proxy.establish_initial_connection
-          end
+      def establish_connection_with_multidb(spec = nil)
+        establish_connection_without_multidb(spec)
+        if ActiveRecord::Base::ConnectionSpecification === spec && name !~ /^MultiDb::/
+          hijack_connection(spec) if respond_to?(:hijack_connection)
         end
+      end
+
+      def hijack_connection(spec=nil)
+        logger.info "[MULTIDB] hijacking connection for #{self.to_s}" if logger
+
+        spec = connection_pool.spec # the hash loaded from yaml
+        self.connection_proxy = ConnectionProxyFactory.build(spec)
+        connection_proxy.instance_variable_set(:@connection_established,false)
+
+        metaclass = class << self ; self ; end
+        metaclass.send(:define_method, :connection) {
+          connection_proxy.establish_initial_connection
+        }
       end
     end
   end

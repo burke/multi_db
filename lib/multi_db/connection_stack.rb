@@ -49,7 +49,7 @@ module MultiDb
     end
 
     def slave
-      @scheduler.current
+      @scheduler.current || @master
     end
 
     def retrieve_connection

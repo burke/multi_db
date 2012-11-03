@@ -5,38 +5,35 @@ test:
   password:
   host: 127.0.0.1
   pool: 5
-
-test_slave_database_1:
-  adapter: mysql2
-  database: multi_db_test
-  username: root
-  password:
-  host: 127.0.0.1
-  pool: 5
-
-test_slave_database_2:
-  adapter: mysql2
-  database: multi_db_test
-  username: root
-  password:
-  host: 127.0.0.1
-  pool: 5
-  weight: 10
-  
-test_slave_database_3:
-  adapter: mysql2
-  database: multi_db_test
-  username: root
-  password:
-  host: 127.0.0.1
-  pool: 5
-  weight: 5
-
-test_slave_database_4:
-  adapter: mysql2
-  database: multi_db_test
-  username: root
-  password:
-  host: 127.0.0.1
-  pool: 5
-  weight: 10
+  slaves:
+    db1:
+      adapter: mysql2
+      database: multi_db_test
+      username: root
+      password:
+      host: 127.0.0.1
+      pool: 5
+    db2:
+      adapter: mysql2
+      database: multi_db_test
+      username: root
+      password:
+      host: 127.0.0.1
+      pool: 5
+      weight: 10
+    db3:
+      adapter: mysql2
+      database: multi_db_test
+      username: root
+      password:
+      host: 127.0.0.1
+      pool: 5
+      weight: 5
+    otherthing:
+      adapter: mysql2
+      database: multi_db_test
+      username: root
+      password:
+      host: 127.0.0.1
+      pool: 5
+      weight: 10
