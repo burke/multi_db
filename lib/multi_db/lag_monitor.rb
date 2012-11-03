@@ -38,7 +38,7 @@ module MultiDb
       value
     end
 
-    def self.report_lag_statistic(lag)
+    def self.report_lag_statistic(connection_name, lag)
       # hook method
     end
 
