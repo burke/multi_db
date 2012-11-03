@@ -92,6 +92,10 @@ module MultiDb
       end
     end
 
+    def respond_to_missing?(symbol, include_private=false)
+      connection_stack.retrieve_connection.respond_to?(symbol, include_private)
+    end
+
     protected
 
     def create_delegation_method!(method)
