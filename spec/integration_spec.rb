@@ -18,6 +18,12 @@ describe MultiDb::ConnectionProxy do
     @sql = 'SELECT 1 + 1 FROM DUAL'
   end
 
+  specify "show slave status, when empty, gets turned into NotReplicating" do
+    # Presumably our tests database is not set up as a slave :P
+    connection = ActiveRecord::Base.connection_proxy.master
+    MultiDb::LagMonitor.replication_lag_too_high?(connection).should be_true
+  end
+
   describe "with standard Scheduler" do
     before(:each) do
       @proxy = ActiveRecord::Base.connection_proxy
