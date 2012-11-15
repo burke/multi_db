@@ -3,6 +3,10 @@ require 'rails/railtie'
 module MultiDb
   class Railtie < ::Rails::Railtie
 
+    rake_tasks do
+      Dir[File.expand_path '../../../tasks/*.rake', __FILE__].each { |f| load f }
+    end
+
     def self.insert!
       slaves = MultiDb.init_slaves
       raise "No slaves databases defined for environment: #{Rails.env}" if slaves.empty?

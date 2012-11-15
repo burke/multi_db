@@ -22,6 +22,30 @@ module MultiDb
       end
     end
 
+    def self.run_worker!
+      %w(INT TERM SIGUSR2).each{|sig| trap(sig) { Rails.logger.info("Caught #{sig}, terminating."); $exit = true } }
+
+      klasses = MultiDb.slave_classes
+      while !$exit do
+        value = klasses.map do |klass|
+          begin
+            slave_lag(klass)
+          rescue ConnectionProxy::RECONNECT_EXCEPTIONS => e
+            Rails.logger.error "[MULTIDB] Can't reach database: #{e.message}"
+            NotReplicating
+          rescue => e
+            Rails.logger.error "[MULTIDB] Cache worker failed to connect!: #{e.message}"
+            NotReplicating
+          end
+        end
+
+        cache.write(LAG_CACHE_KEY, value, expires_in: 2)
+        break if $exit
+        sleep 1
+      end
+
+    end
+
     private
 
     def self.cache
