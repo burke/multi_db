@@ -25,7 +25,7 @@ module MultiDb
       sess_tables = sess_mdb[:table_writes]
       return Unbounded if sess_tables.nil?
 
-      latest_write = tables(sql).map { |table| sess_tables[table] }.max
+      latest_write = tables(sql).map { |table| sess_tables[table] }.compact.max
 
       latest_write.nil? ? Unbounded : max_lag_from_timestamp(latest_write)
     end

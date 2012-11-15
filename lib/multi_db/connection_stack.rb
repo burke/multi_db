@@ -80,6 +80,10 @@ module MultiDb
       begin
         item = @scheduler.item_with_replica_lag_less_than(max_lag)
       rescue MultiDb::Scheduler::NoMoreItems
+        unless defined?(Rails) && Rails.env.development?
+          # don't log in dev.
+          logger.debug "[MULTIDB] No up-to-date slave found. Reading from master"
+        end
         item = @master
       end
       return yield if item == current
