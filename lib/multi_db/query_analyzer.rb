@@ -54,6 +54,7 @@ module MultiDb
     end
 
     def self.tables(sql)
+      return [] unless String === sql
       tables = Set.new
       sql.scan(TABLE_MATCH).each do |table_name, more_tables|
         tables << table_name.to_sym

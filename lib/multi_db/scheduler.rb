@@ -74,7 +74,12 @@ module MultiDb
     def item_with_replica_lag_less_than(max_lag)
       lag = replica_lag[current_index_i]
       # if the current item is acceptable, return it
-      return current if lag != LagMonitor::NotReplicating && lag < max_lag
+
+      if lag != LagMonitor::NotReplicating &&
+        (max_lag == QueryAnalyzer::Unbounded || lag < max_lag)
+      then
+        return current
+      end
 
       # the current item is not acceptable. Try to find one that is.
       # Choose a random index to start from, and find a slave that isn't
@@ -82,11 +87,12 @@ module MultiDb
       starting_index = index = rand(@n)
       blacklist_threshold = Speedytime.current - @blacklist_timeout
       loop do
-        if @blacklist[index] < blacklist_threshold &&
-          replica_lag[index] != LagMonitor::NotReplicating &&
-          replica_lag[index] < max_lag
-        then
-          return @items[index]
+        if @blacklist[index] < blacklist_threshold
+          if replica_lag[index] == LagMonitor::NotReplicating
+            blacklist!(@items[index])
+          elsif replica_lag[index] < max_lag
+            return @items[index]
+          end
         end
         index = next_index(index)
         raise NoMoreItems, 'No suitable item' if index == starting_index

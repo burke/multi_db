@@ -25,6 +25,7 @@ describe MultiDb::LagMonitor do
       MultiDb::LagMonitor.should_receive(:slave_lag).with(conns[0]).and_return(MultiDb::LagMonitor::NotReplicating)
       MultiDb::LagMonitor.should_receive(:slave_lag).with(conns[1]).and_return(1)
       expected = [:not_replicating, 1]
+      MultiDb::LagMonitor.instance_variable_set(:@lag_cache,nil)
       MultiDb::LagMonitor.replica_lag_for_connections(conns).should == expected
     end
 
