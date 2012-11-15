@@ -49,7 +49,7 @@ module MultiDb
       # If the database is not currently replicating,
       # SHOW SLAVE STATUS returns no rows.
       if lag.nil?
-        if defined?(Rails) && Rails.env.staging?
+        if defined?(Rails) && Rails.env.development? || Rails.env.staging? # TODO: This should be way faster
           return 0
         else
           return NotReplicating
