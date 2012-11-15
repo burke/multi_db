@@ -1,48 +1,40 @@
 require 'speedytime'
+require File.expand_path '../query_analyzer', __FILE__
 
 module MultiDb
   module LagMonitor
 
-    # There's no especially solid reasoning behind these factors.
-    # STICKY_DURATION_PADDING ensures that even if a slave is reporting
-    # no latency, we still bank on there being a little bit.
-    REPLICA_LAG_THRESHOLD      = 10 # seconds
-    STICKY_DURATION_MULTIPLIER = 1.2 # coefficient
-    STICKY_DURATION_PADDING    = 3 # seconds
-
     NotReplicating = :not_replicating
-
-    # How long, after doing a write, should all reads be sent to the master?
-    def self.sticky_master_duration(connection) # in seconds
-      lag = slave_lag(connection)
-      # If the connection isn't replicating, lock to master for a minute or so?
-      lag = REPLICA_LAG_THRESHOLD * 5 if lag == NotReplicating
-
-      ((lag * STICKY_DURATION_MULTIPLIER) + STICKY_DURATION_PADDING).ceil
-    end
+    LAG_CACHE_KEY = "multidb:replica_lag"
 
     # In exceptionally slow replication scenarios, we'd rather just redirect
     # everything to master and fail hard than show especially inconsistent
     # application state.
     def self.replication_lag_too_high?(connection)
       lag = slave_lag(connection)
-      lag == NotReplicating || lag > REPLICA_LAG_THRESHOLD
+      lag == NotReplicating || lag > QueryAnalyzer::REPLICA_LAG_THRESHOLD
+    end
+
+    def self.replica_lag_for_connections(items)
+      lag_cache_fetch do
+        # MultiDb.logger.warn "Replica lag cache worker hasn't updated the cache in over 2 seconds!"
+        items.map { |item| slave_lag(item) }
+      end
     end
 
     private
 
-    def self.slave_lag(klass)
-      cache_fetch("multidb:slave_lag:#{klass.name}") {
-        actual_slave_lag(klass)
-      }
+    def self.cache
+      Rails.cache
     end
 
-    def self.cache_fetch(key, expiry = 10, &block)
-      @lag_cache ||= {}
-      value, expire_time = @lag_cache[key]
-      if expire_time.nil? || expire_time < Speedytime.current
-        value = Rails.cache.fetch(key, :expires_in => expiry / 2, &block)
-        @lag_cache[key] = [value, Speedytime.current + expiry]
+    # caches locally for one second
+    def self.lag_cache_fetch(&block)
+      value, cached_at = @lag_cache
+      current_time = Speedytime.current
+      if cached_at.nil? || current_time != cached_at
+        value = cache.fetch(LAG_CACHE_KEY, :expires_in => 1, &block)
+        @lag_cache = [value, current_time]
       end
       value
     end
@@ -51,7 +43,7 @@ module MultiDb
       # hook method
     end
 
-    def self.actual_slave_lag(connection_class)
+    def self.slave_lag(connection_class)
       connection = connection_class.retrieve_connection
       lag = slave_lag_from_mysql(connection)
 

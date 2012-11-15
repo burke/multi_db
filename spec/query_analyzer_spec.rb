@@ -8,28 +8,28 @@ describe MultiDb::QueryAnalyzer do
     end
 
     #simple selects
-    q("SELECT * FROM `products`", "products")
-    q("SELECT * FROM products", "products")
-    q("SELECT * from products", "products")
-    q("select * from   `products`", "products")
-    q("select * from   `with_underscores`", "with_underscores")
+    q("SELECT * FROM `products`", :products)
+    q("SELECT * FROM products", :products)
+    q("SELECT * from products", :products)
+    q("select * from   `products`", :products)
+    q("select * from   `with_underscores`", :with_underscores)
 
     #insert
-    q("insert into products (a,b,c) values(1,2,3)", "products")
+    q("insert into products (a,b,c) values(1,2,3)", :products)
 
     #update
-    q("update products set id=1", "products")
+    q("update products set id=1", :products)
 
     #joins
-    q("select * from products left join images on products.image_id = images.id", "products", "images")
+    q("select * from products left join images on products.image_id = images.id", :products, :images)
 
     #subselect
-    q("select * from products where id in (select product_id from images)", "products", "images")
+    q("select * from products where id in (select product_id from images)", :products, :images)
 
     #multiple tables
-    q("select * from products, images", "products", "images")
-    q("select * from a,b,c,d,e,f", *%w(a b c d e f))
-    q("select * from a,`b`,c,`d` ,e,f", *%w(a b c d e f))
+    q("select * from products, images", :products, :images)
+    q("select * from a,b,c,d,e,f", :a, :b, :c, :d, :e, :f)
+    q("select * from a,`b`,c,`d` ,e,f", :a, :b, :c, :d, :e, :f)
   end
 
 
@@ -41,59 +41,75 @@ describe MultiDb::QueryAnalyzer do
       Speedytime.stub(current: CURRENT_TIME)
     end
 
-    it "doesn't require sticky on a fresh read" do
+    it 'records data writes to the session' do
       session = {}
-      subject.query_requires_sticky?(session, "select * from products").should be_false
+      subject.record_write_to_session(session, "delete from products")
+      session.should == ({
+        multi_db: {
+          last_write: 1000,
+          table_writes: {
+            products: 1000
+          }
+        }
+      })
     end
 
-    it "requires sticky when specified" do
-      session = {sticky_expires: CURRENT_TIME+1, sticky_tables: {"products" => CURRENT_TIME + 1}}
-      subject.query_requires_sticky?(session, "select * from products").should be_true
+    it "returns Unbounded for queries with no replica lag constraint" do
+      session = {}
+      subject.max_lag_for_query(session, "select * from products").should == subject::Unbounded
     end
 
-    # this is an invalid state, but demonstrates that a performance optimization has not been removed.
-    it "doesn't require sticky when the sticky_expires is passed, even if the table somehow isn't" do
-      session = {sticky_expires: CURRENT_TIME-1, sticky_tables: {"products" => CURRENT_TIME + 1}}
-      subject.query_requires_sticky?(session, "select * from products").should be_false
-    end
-
-    it "marks tables as sticky." do
-      pending "Waiting until feature is enabled :("
-
-      session = subject.mark_sticky_tables_in_session({}, "DELETE FROM products, images", 1)
-      exp = {
-        sticky_expires: CURRENT_TIME+1,
-        sticky_tables: {
-          "products" => CURRENT_TIME+1,
-          "images" => CURRENT_TIME+1,
+    it "calculates the max replica lag from the last data write" do
+      session = {
+        multi_db: {
+          last_write: 992,
+          table_writes: {
+            products: 992
+          }
         }
       }
-      session.should == exp
+      subject.max_lag_for_query(session, "select * from products").should == 10
     end
 
-    it "adds stickies to an existing session and purges expired stickies" do
-      pending "Waiting until feature is enabled :("
+    it "calculates the max replica lag per table" do
+      session = {
+        multi_db: {
+          last_write: 998,
+          table_writes: {
+            products: 992,
+            orders: 998,
+          }
+        }
+      }
+      subject.max_lag_for_query(session, "select * from products").should == 10
+      subject.max_lag_for_query(session, "select * from orders").should == 4
+    end
 
+    it "records additional writes into an existing session" do
       prev = {
-        sticky_expires: CURRENT_TIME-100,
-        sticky_tables: {
-          "baz" => CURRENT_TIME+2,
-          "foobars" => CURRENT_TIME-100,
-          "products" => CURRENT_TIME-100
+        multi_db: {
+          last_write: 999,
+          table_writes: {
+            baz: 200,
+            foobars: 994,
+            products: 999
+          }
         }
       }
-      session = subject.mark_sticky_tables_in_session(prev, "DELETE FROM products, images", 1)
+      session = subject.record_write_to_session(prev, "DELETE FROM products, images")
       exp = {
-        sticky_expires: CURRENT_TIME+1,
-        sticky_tables: {
-          "baz" => CURRENT_TIME+2,
-          "products" => CURRENT_TIME+1,
-          "images" => CURRENT_TIME+1,
+        multi_db: {
+          last_write: 1000,
+          table_writes: {
+            foobars: 994,
+            products: 1000,
+            images: 1000
+          }
         }
       }
       session.should == exp
-      subject.query_requires_sticky?(session, "SELECT * FROM products").should be_true
-      subject.query_requires_sticky?(session, "SELECT * FROM foobars").should be_false
+      subject.max_lag_for_query(session, "SELECT * FROM products").should == 2
+      subject.max_lag_for_query(session, "SELECT * FROM foobars").should == 8
     end
 
   end

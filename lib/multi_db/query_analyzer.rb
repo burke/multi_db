@@ -9,56 +9,66 @@ module MultiDb
     MORE_TABLES = /(?:\s*,\s*`?(?:\w+)`?)/ # for e.g.: SELECT * FROM `a`, `b`
     TABLE_MATCH = /#{KEYWORD}\s+#{TABLE_NAME}(#{MORE_TABLES}*)/
 
-    TEMP_DISABLE = true
+    Unbounded = :unbounded
 
-    def self.query_requires_sticky?(session, query)
-      exp = session[:sticky_expires]
-      return false if exp.nil? || exp <= Speedytime.current
+    TEMP_DISABLE = false
 
-      return true if TEMP_DISABLE
+    REPLICA_LAG_THRESHOLD = 10 # Slaves over this threshold won't be considered.
+    STICKY_PADDING_FACTOR = 2 # 
 
-      stickied = session[:sticky_tables] || {}
-      tables(query).each do |asked_for|
-        if stickied[asked_for] && stickied[asked_for] >= Speedytime.current
-          return true
+    def self.max_lag_for_query(session, sql)
+      sess_mdb = session[:multi_db]
+      return Unbounded if sess_mdb.nil? or sess_mdb[:last_write].nil?
+
+      TEMP_DISABLE and return max_lag_from_timestamp(sess_mdb[:last_write])
+
+      sess_tables = sess_mdb[:table_writes]
+      return Unbounded if sess_tables.nil?
+
+      latest_write = tables(sql).map { |table| sess_tables[table] }.max
+
+      latest_write.nil? ? Unbounded : max_lag_from_timestamp(latest_write)
+    end
+
+    def self.record_write_to_session(session, sql)
+      sess_mdb = session[:multi_db] ||= {}
+      current_time = Speedytime.current
+
+      sess_mdb[:last_write] = current_time
+
+      TEMP_DISABLE and return session
+
+      sess_tables = sess_mdb[:table_writes] ||= {}
+
+      sess_tables.each do |table, last_write|
+        if last_write < (current_time - (REPLICA_LAG_THRESHOLD + 5))
+          sess_tables.delete(table)
         end
       end
 
-      return false
-    end
-
-    def self.mark_sticky_tables_in_session(session, query, timeout)
-      session[:sticky_tables] ||= {}
-
-      expiry = Speedytime.current + timeout.to_i
-      if session[:sticky_expires].nil? || session[:sticky_expires] < expiry
-        session[:sticky_expires] = expiry
-      end
-
-      return session if TEMP_DISABLE
-
-      session[:sticky_tables].each do |k,v|
-        session[:sticky_tables].delete(k) if v < expiry
-      end
-
-      tables(query).each do |table|
-        session[:sticky_tables][table] = expiry
+      tables(sql).each do |table|
+        sess_tables[table] = current_time
       end
 
       session
     end
 
-
     def self.tables(sql)
       tables = Set.new
       sql.scan(TABLE_MATCH).each do |table_name, more_tables|
-        tables << table_name
+        tables << table_name.to_sym
         next if more_tables.empty?
         more_tables.split(/\s*,\s*/).drop(1).each do |table|
-          tables << table.tr('`', '')
+          tables << table.tr('`', '').to_sym
         end
       end
       tables.to_a
+    end
+
+    def self.max_lag_from_timestamp(ts)
+      unpadded = Speedytime.current - ts
+      padded = unpadded + STICKY_PADDING_FACTOR
+      padded < 0 ? 0 : padded
     end
 
   end

@@ -13,10 +13,9 @@ describe MultiDb::ConnectionProxy do
   let(:proxy) { MultiDb::ConnectionProxy.new(master, [slave1]) }
 
   before do
+    MultiDb::LagMonitor.stub(:replica_lag_for_connections).and_return([0])
     MultiDb::LagMonitor.stub(:replication_lag_too_high?).and_return(false)
-    MultiDb::LagMonitor.stub(:sticky_master_duration).and_return(0)
-    Thread.current[:sticky_expires] = nil
-    Thread.current[:sticky_tables] = nil
+    Thread.current[:multi_db] = nil
 
     logger = stub(warn: nil, error: nil, fatal: nil)
     MultiDb::ConnectionProxy.any_instance.stub(logger: logger)
@@ -52,6 +51,7 @@ describe MultiDb::ConnectionProxy do
   describe 'handling database errors' do
 
     it 'switches to the next slave when a connection error happens' do
+      MultiDb::LagMonitor.stub(:replica_lag_for_connections).and_return([0,0])
       my_proxy = MultiDb::ConnectionProxy.new(master, [slave1, slave2])
       my_proxy.with_slave do
         slave1.should_receive(:select_all).and_raise(ActiveRecord::ConnectionNotEstablished)
@@ -162,7 +162,7 @@ describe MultiDb::ConnectionProxy do
   describe 'stickiness' do
 
     it 'marks the session as sticky on unsafe queries, causing safe queries to go to master' do
-      MultiDb::LagMonitor.stub(:sticky_master_duration).and_return(2)
+      MultiDb::QueryAnalyzer.stub(:max_lag_for_query).and_return(0)
       expect_query_on(master, :insert, "INSERT INTO employees")
       expect_query_on(master, :select_all, "SELECT * FROM employees")
     end
@@ -175,10 +175,6 @@ describe MultiDb::ConnectionProxy do
       expect_query_on(slave1, :select_all, "SELECT * FROM employees")
     end
 
-  end
-
-  describe 'statistics' do
-    specify { pending }
   end
 
   private

@@ -2,22 +2,40 @@ require './lib/multi_db/lag_monitor'
 
 describe MultiDb::LagMonitor do
 
-  describe "sticky_master_duration" do
+  describe "fetching the replica lag from cache" do
 
-    it "returns 3 seconds even when there is no replica lag" do
-      subject.stub(slave_lag: 0)
-      subject.sticky_master_duration(anything).should == 3
+    let(:cache) {
+      Object.new.tap do |o|
+        class << o
+          def fetch(*)
+            yield
+          end
+        end
+      end
+    }
+
+    before(:each) do
+      MultiDb::LagMonitor.stub(cache: cache)
     end
 
-    it "pads a bit" do
-      subject.stub(slave_lag: 1)
-      subject.sticky_master_duration(anything).should == 5
+    # stubbing out mysql would be preferable here, but it's a lot of work.
+    # The MySQL access could be pulled into another object I guess.
+    it 'returns a parallel array to the input array' do
+      conns = [stub, stub]
+      MultiDb::LagMonitor.should_receive(:slave_lag).with(conns[0]).and_return(MultiDb::LagMonitor::NotReplicating)
+      MultiDb::LagMonitor.should_receive(:slave_lag).with(conns[1]).and_return(1)
+      expected = [:not_replicating, 1]
+      MultiDb::LagMonitor.replica_lag_for_connections(conns).should == expected
+    end
 
-      subject.stub(slave_lag: 2)
-      subject.sticky_master_duration(anything).should == 6
+    it 'caches the result for two seconds' do
+      conns = [stub]
+      MultiDb::LagMonitor.should_receive(:slave_lag).with(conns[0]).twice.and_return(0)
 
-      subject.stub(slave_lag: 3)
-      subject.sticky_master_duration(anything).should == 7
+      Speedytime.stub(current: 1000)
+      100.times { MultiDb::LagMonitor.replica_lag_for_connections(conns) }
+      Speedytime.stub(current: 1001)
+      100.times { MultiDb::LagMonitor.replica_lag_for_connections(conns) }
     end
 
   end

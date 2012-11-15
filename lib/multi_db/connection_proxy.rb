@@ -110,15 +110,20 @@ module MultiDb
     end
 
     def send_to_master(method, *args, &block)
-      mark_sticky(method, args[0]) if unsafe?(method)
+      if unsafe?(method)
+        QueryAnalyzer.record_write_to_session(Session.current_session, args[0])
+      end
       with_master { perform_query(method, *args, &block) }
     end
 
     def send_to_current(method, *args, &block)
-      if needs_sticky_master?(method, args[0])
-        with_master { perform_query(method, *args, &block) }
-      else
+      max_lag = QueryAnalyzer.max_lag_for_query(Session.current_session, args[0])
+      if max_lag == QueryAnalyzer::Unbounded
         perform_query(method, *args, &block)
+      else
+        connection_stack.with_slave_having_replica_lag_under(max_lag) do
+          perform_query(method, *args, &block)
+        end
       end
     end
 

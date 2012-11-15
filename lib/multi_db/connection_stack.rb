@@ -74,6 +74,24 @@ module MultiDb
       @scheduler.reset_blacklist
     end
 
+    def with_slave_having_replica_lag_under(max_lag)
+      return yield if master?
+
+      begin
+        item = @scheduler.item_with_replica_lag_less_than(max_lag)
+      rescue MultiDb::Scheduler::NoMoreItems
+        item = @master
+      end
+      return yield if item == current
+
+      begin
+        @stack.unshift item
+        yield
+      ensure
+        pop
+      end
+    end
+
     # Switches to the next slave database for read operations.
     # Fails over to the master database if all slaves are unavailable.
     def next_reader!
