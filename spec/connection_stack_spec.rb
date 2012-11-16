@@ -102,4 +102,46 @@ describe MultiDb::ConnectionStack do
     end
   end
 
+  describe 'with_slave_having_replica_lag_under' do
+    before do
+      subject.push_slave
+      scheduler.stub(:item_with_replica_lag_less_than).and_return(slave2)
+    end
+
+    it 'finds a slave with acceptable replica lag' do
+      subject.current.should == slave1
+      subject.with_slave_having_replica_lag_under(5) do
+        subject.current.should == slave2
+      end
+      subject.current.should == slave1
+    end
+
+    it 'does not switch away from master' do
+      subject.push_master
+      subject.with_slave_having_replica_lag_under(5) do
+        subject.current.should == master
+      end
+      subject.current.should == master
+    end
+
+    it 'assigns the master if no suitable slave was found' do
+      scheduler.stub(:item_with_replica_lag_less_than).and_raise(MultiDb::Scheduler::NoMoreItems)
+      subject.current.should == slave1
+      subject.with_slave_having_replica_lag_under(5) do
+        subject.current.should == master
+      end
+      subject.current.should == slave1
+    end
+
+    it 'does not push an entry if the current stack frame is already acceptable' do
+      subject.next_reader!
+      subject.current.should == slave2
+      subject.with_slave_having_replica_lag_under(5) do
+        subject.current.should == slave2
+      end
+      subject.current.should == slave2
+    end
+
+  end
+
 end

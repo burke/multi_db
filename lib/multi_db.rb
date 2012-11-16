@@ -11,6 +11,7 @@ require 'multi_db/slave_initialization'
 require 'multi_db/session'
 require 'multi_db/railtie'
 require 'multi_db/connection_stack'
+require 'multi_db/lag_cache_worker'
 
 module MultiDb
 

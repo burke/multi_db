@@ -6,33 +6,36 @@ require MULTI_DB_SPEC_DIR + '/../lib/multi_db'
 describe MultiDb::ConnectionProxy do
 
   before(:all) do
+    Object.const_set("RAILS_CACHE", ActiveSupport::Cache.lookup_store(:memory_store, :namespace => "multidbspecs"))
+    MultiDb::LagMonitor.stub(:slave_lag).and_return(0)
     MultiDb::Railtie.insert!
     ActiveRecord::Base.configurations = MULTI_DB_SPEC_CONFIG
     ActiveRecord::Base.establish_connection :test
     ActiveRecord::Migration.verbose = false
     # ActiveRecord::Migration.create_table(:master_models, :force => true) {}
-    Object.const_set("RAILS_CACHE", ActiveSupport::Cache.lookup_store(:memory_store, :namespace => "multidbspecs"))
     class MasterModel < ActiveRecord::Base; end
     # ActiveRecord::Migration.create_table(:foo_models, :force => true) {|t| t.string :bar}
     class FooModel < ActiveRecord::Base; end
     @sql = 'SELECT 1 + 1 FROM DUAL'
   end
 
-  specify "show slave status, when empty, gets turned into NotReplicating" do
-    # Presumably our tests database is not set up as a slave :P
-    connection = ActiveRecord::Base.connection_proxy.master
-    MultiDb::LagMonitor.replication_lag_too_high?(connection).should be_true
+  after(:all) do
+    MultiDb.slave_classes.each do |klass|
+      MultiDb.send(:remove_const,klass.name.sub(/^.*:/,''))
+    end
   end
 
   before(:each) do
     @proxy = ActiveRecord::Base.connection_proxy
     @proxy.reset_blacklist
-    Thread.current[:sticky_expires] = nil
+    Thread.current[:multi_db] = nil
     @master = @proxy.master.retrieve_connection
     @slave1 = MultiDb::SlaveDatabase1.retrieve_connection
     @slave2 = MultiDb::SlaveDatabase2.retrieve_connection
     @slave3 = MultiDb::SlaveDatabase3.retrieve_connection
     @slave4 = MultiDb::SlaveDatabase4.retrieve_connection
+
+    MultiDb::LagMonitor.stub(:slave_lag).and_return(0)
   end
 
   it 'AR::B should respond to #connection_proxy' do
@@ -75,19 +78,19 @@ describe MultiDb::ConnectionProxy do
 
   it 'should dynamically generate safe methods' do
     @proxy.with_slave do
-      @proxy.should_not respond_to(:select_value)
+      @proxy.methods.should_not include(:select_rows)
       @proxy.select_rows(@sql)
-      @proxy.should respond_to(:select_value)
+      @proxy.methods.should include(:select_rows)
     end
   end
 
   it 'should cache queries using select_all' do
     ActiveRecord::Base.cache do
-      # next_reader will be called and switch to the SlaveDatabase2
-      @slave2.should_receive(:select_all).exactly(1)
-      @slave1.should_not_receive(:select_all)
-      @master.should_not_receive(:select_all)
-      3.times { @proxy.select_all(@sql) }
+      @proxy.with_slave do
+        @proxy.connection_stack.current.retrieve_connection.should_receive(:select_all).exactly(1)
+        @master.should_not_receive(:select_all)
+        3.times { @proxy.select_all(@sql) }
+      end
     end
   end
 
@@ -97,9 +100,9 @@ describe MultiDb::ConnectionProxy do
       meths.each do |meth|
         @master.should_receive(meth).and_return(true)
       end
-      Thread.current[:sticky_expires] = nil
+      Thread.current[:multi_db] = nil
       @proxy.with_slave do
-        @proxy.connection_stack.current.should_receive(:select_all).exactly(3).times
+        @proxy.connection_stack.current.retrieve_connection.should_receive(:select_all).exactly(5).times
         5.times do |i|
           @proxy.select_all(@sql)
           @proxy.send(meths[i])

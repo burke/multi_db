@@ -110,27 +110,20 @@ module MultiDb
     end
 
     def send_to_master(method, *args, &block)
-      mark_sticky(method, args[0]) if unsafe?(method)
+      unsafe?(method) and QueryAnalyzer.record_write_to_session(Session.current_session, args[0])
       with_master { perform_query(method, *args, &block) }
     end
 
     def send_to_current(method, *args, &block)
-      if needs_sticky_master?(method, args[0])
-        with_master { perform_query(method, *args, &block) }
-      else
+      max_lag = QueryAnalyzer.max_lag_for_query(Session.current_session, args[0])
+      connection_stack.with_slave_having_replica_lag_under(max_lag) do
         perform_query(method, *args, &block)
       end
     end
 
     def perform_query(method, *args, &block)
-      if connection_stack.master?
-        @reconnect and reconnect_master!
-      else
-        connection_stack.find_up_to_date_reader!
-      end
-
+      reconnect_master! if connection_stack.master? && @reconnect
       record_statistic(connection_stack.current.name) unless IGNORABLE_METHODS[method]
-
       connection_stack.retrieve_connection.send(method, *args, &block)
     rescue *RECONNECT_EXCEPTIONS => e
       raise if should_re_raise_exception?(e)
@@ -150,17 +143,6 @@ module MultiDb
 
     def record_statistic(connection_name)
       # hook method
-    end
-
-    def mark_sticky(method, sql)
-      return if noncommunicating_method?(method, sql)
-      duration = LagMonitor.sticky_master_duration(connection_stack.slave)
-      QueryAnalyzer.mark_sticky_tables_in_session(Session.current_session, sql, duration)
-    end
-
-    def needs_sticky_master?(method, sql)
-      return false if noncommunicating_method?(method, sql)
-      QueryAnalyzer.query_requires_sticky?(Session.current_session, sql)
     end
 
     NONCOMMUNICATING_MASTER_METHODS = [:open_transactions, :add_transaction_record]
