@@ -34,7 +34,7 @@ module MultiDb
     # hidden state that may vary between connections.
     IGNORABLE_METHODS = %w(
       log log_info sanitize_limit quote_table_name quote quote_column_name
-      prefetch_primary_key?  case_sensitive_equality_operator table_alias_for
+      prefetch_primary_key?  case_sensitive_equality_operator table_alias_for columns open_transactions
     ).inject({}) { |acc, val|
       acc[val.to_sym] = true
       acc
