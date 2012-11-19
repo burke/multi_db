@@ -13,8 +13,6 @@ describe MultiDb::ConnectionProxy do
   let(:proxy) { MultiDb::ConnectionProxy.new(master, [slave1]) }
 
   before do
-    MultiDb::LagMonitor.stub(:replication_lag_too_high?).and_return(false)
-    MultiDb::LagMonitor.stub(:sticky_master_duration).and_return(0)
     Thread.current[:sticky_expires] = nil
     Thread.current[:sticky_tables] = nil
 
@@ -140,6 +138,7 @@ describe MultiDb::ConnectionProxy do
       expect_query_on(master, :begin_db_transaction)
       expect_query_on(master, :insert, "INSERT INTO employees")
       expect_query_on(master, :commit_db_transaction)
+      Thread.current[:sticky_expires] = nil
       expect_query_on(slave1, :select_all, "SELECT * FROM employees")
     end
 
@@ -147,6 +146,7 @@ describe MultiDb::ConnectionProxy do
       expect_query_on(master, :begin_db_transaction)
       expect_query_on(master, :insert, "INSERT INTO employees")
       expect_query_on(master, :rollback_db_transaction)
+      Thread.current[:sticky_expires] = nil
       expect_query_on(slave1, :select_all, "SELECT * FROM employees")
     end
 
@@ -162,13 +162,11 @@ describe MultiDb::ConnectionProxy do
   describe 'stickiness' do
 
     it 'marks the session as sticky on unsafe queries, causing safe queries to go to master' do
-      MultiDb::LagMonitor.stub(:sticky_master_duration).and_return(2)
       expect_query_on(master, :insert, "INSERT INTO employees")
       expect_query_on(master, :select_all, "SELECT * FROM employees")
     end
 
     it 'does not mark sessions as sticky for safe queries that are routed to the master' do
-      MultiDb::LagMonitor.stub(:sticky_master_duration).and_return(2)
       expect_query_on(master, :begin_db_transaction)
       expect_query_on(master, :select_all, "SELECT * FROM employees")
       expect_query_on(master, :rollback_db_transaction)

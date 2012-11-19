@@ -8,7 +8,6 @@ require File.expand_path '../query_cache_compat', __FILE__
 require File.expand_path '../scheduler', __FILE__
 require File.expand_path '../connection_stack', __FILE__
 require File.expand_path '../query_analyzer', __FILE__
-require File.expand_path '../lag_monitor', __FILE__
 require File.expand_path '../session', __FILE__
 
 module MultiDb
@@ -16,6 +15,8 @@ module MultiDb
     include QueryCacheCompat
     include ActiveRecord::ConnectionAdapters::QueryCache
     extend ThreadLocalAccessors
+
+    STICKY_MASTER_DURATION = 5 * 60 # 5 minutes
 
     # Safe methods are those that should either go to the slave ONLY or go
     # to the current active connection.
@@ -125,8 +126,6 @@ module MultiDb
     def perform_query(method, *args, &block)
       if connection_stack.master?
         @reconnect and reconnect_master!
-      else
-        connection_stack.find_up_to_date_reader!
       end
 
       record_statistic(connection_stack.current.name) unless IGNORABLE_METHODS[method]
@@ -154,8 +153,7 @@ module MultiDb
 
     def mark_sticky(method, sql)
       return if noncommunicating_method?(method, sql)
-      duration = LagMonitor.sticky_master_duration(connection_stack.slave)
-      QueryAnalyzer.mark_sticky_tables_in_session(Session.current_session, sql, duration)
+      QueryAnalyzer.mark_sticky_tables_in_session(Session.current_session, sql, STICKY_MASTER_DURATION)
     end
 
     def needs_sticky_master?(method, sql)

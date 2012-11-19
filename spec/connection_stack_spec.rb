@@ -92,14 +92,4 @@ describe MultiDb::ConnectionStack do
     subject.current.should == slave2
   end
 
-  it 'blacklists slaves with unacceptable replication statuses' do
-    Thread.current[:sticky_expires] = nil
-    MultiDb::LagMonitor.should_receive(:replication_lag_too_high?).with(slave1).and_return(true)
-    MultiDb::LagMonitor.should_receive(:replication_lag_too_high?).with(slave2).and_return(false)
-    scheduler.should_receive(:blacklist!).with(slave1)
-    subject.with_slave do
-      subject.find_up_to_date_reader!
-    end
-  end
-
 end

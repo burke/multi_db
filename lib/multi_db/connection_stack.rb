@@ -1,5 +1,4 @@
 require File.expand_path '../scheduler', __FILE__
-require File.expand_path '../lag_monitor', __FILE__
 
 module MultiDb
   class ConnectionStack
@@ -54,15 +53,6 @@ module MultiDb
 
     def retrieve_connection
       current.retrieve_connection
-    end
-
-    def find_up_to_date_reader!
-      # This will, as a worst case, terminate when we give up on
-      # slaves and set current to master, since master always has
-      # replica lag of 0.
-      while current != @master && LagMonitor.replication_lag_too_high?(current)
-        blacklist_current!
-      end
     end
 
     def blacklist_current!
